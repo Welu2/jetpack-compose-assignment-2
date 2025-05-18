@@ -5,11 +5,10 @@ import android.util.Log
 import android.widget.Toast
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.Observer
 import androidx.room.Room
 import com.example.jetpack_compose_assignment_2.data.AppDatabase
 import com.example.jetpack_compose_assignment_2.data.Todo
-
+import com.example.jetpack_compose_assignment_2.model.Todov
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -19,34 +18,33 @@ class MyApp : Application() {
     companion object {
         lateinit var database: AppDatabase
 
-        private val _postsLiveData = MutableLiveData<List<Todo>>()
-        val postsLiveData: LiveData<List<Todo>> get() = _postsLiveData
+        private val _postsLiveData = MutableLiveData<List<Todov>>()
+        val postsLiveData: LiveData<List<Todov>> get() = _postsLiveData
     }
 
     override fun onCreate() {
         super.onCreate()
 
-        // Initialize Room database
         database = Room.databaseBuilder(
             applicationContext,
             AppDatabase::class.java,
             "app_database.db"
-        ).fallbackToDestructiveMigration()
-            .build()
+        ).fallbackToDestructiveMigration().build()
 
-        // Show cached data on app start
         loadCachedData()
-
-        // Fetch and store posts from API
         fetchPostsFromApi()
     }
 
     private fun loadCachedData() {
         CoroutineScope(Dispatchers.IO).launch {
             val cachedPosts = database.postDao().getAllTodo()
-            if (cachedPosts.isNotEmpty()) {
-                _postsLiveData.postValue(cachedPosts)
-                Log.d("ROOM_TEST", "Loaded ${cachedPosts.size} cached post(s)")
+            val transformedPosts = cachedPosts.map { todo ->
+                Todov(todo.id, todo.userId,  todo.title,todo.completed)
+            }
+
+            if (transformedPosts.isNotEmpty()) {
+                _postsLiveData.postValue(transformedPosts)
+                Log.d("ROOM_TEST", "Loaded ${transformedPosts.size} cached post(s)")
             } else {
                 Log.d("ROOM_TEST", "No cached posts available")
             }
@@ -56,43 +54,50 @@ class MyApp : Application() {
     private fun fetchPostsFromApi() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                // Attempt to fetch remote posts
                 val remotePosts = RetrofitClient.api.getTodo()
 
-                // Save posts to database
-                database.postDao().insertAll(remotePosts)
+                val todoEntities = remotePosts.map { todov ->
+                    Todo(todov.id, todov.userId,todov.title, todov.completed)
+                }
+
+                database.postDao().insertAll(todoEntities)
                 val storedPosts = database.postDao().getAllTodo()
 
-                // Update LiveData to refresh UI
-                _postsLiveData.postValue(storedPosts)
+                val transformedPosts = storedPosts.map { todo ->
+                    Todov(todo.id, todo.userId,todo.title, todo.completed)
+                }
 
-                Log.d("ROOM_TEST", "Fetched and stored ${storedPosts.size} post(s)")
+                _postsLiveData.postValue(transformedPosts)
+                Log.d("ROOM_TEST", "Fetched and stored ${transformedPosts.size} post(s)")
 
             } catch (e: Exception) {
                 Log.e("ROOM_TEST", "Error fetching posts from network", e)
-
-                // Handle error gracefully
                 CoroutineScope(Dispatchers.Main).launch {
-                    // Optionally, you can show a retry prompt or a Toast here
                     Toast.makeText(applicationContext, "Network error. Showing cached data.", Toast.LENGTH_SHORT).show()
                 }
-
-                // Optionally, load cached data in case of failure
                 loadCachedData()
             }
         }
     }
 
-    // Optional: Retry fetching posts after a failure
     fun retryFetchPosts() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                // Retry fetching remote posts
                 val remotePosts = RetrofitClient.api.getTodo()
-                database.postDao().insertAll(remotePosts)
+
+                val todoEntities = remotePosts.map { todov ->
+                    Todo(todov.id, todov.userId,todov.title,  todov.completed)
+                }
+
+                database.postDao().insertAll(todoEntities)
                 val storedPosts = database.postDao().getAllTodo()
-                _postsLiveData.postValue(storedPosts)
-                Log.d("ROOM_TEST", "Retry successful. Fetched and stored ${storedPosts.size} post(s)")
+
+                val transformedPosts = storedPosts.map { todo ->
+                    Todov(todo.id,todo.userId, todo.title,  todo.completed)
+                }
+
+                _postsLiveData.postValue(transformedPosts)
+                Log.d("ROOM_TEST", "Retry successful. Fetched and stored ${transformedPosts.size} post(s)")
             } catch (e: Exception) {
                 Log.e("ROOM_TEST", "Retry failed", e)
             }
